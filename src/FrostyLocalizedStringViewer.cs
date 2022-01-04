@@ -20,11 +20,13 @@ namespace LocalizedStringPlugin
 
         private const string PART_ExportButton = "PART_ExportButton";
         private const string PART_LocalizedString = "PART_LocalizedString";
+        private const string PART_ResolveExportButton = "PART_ResolveExportButton";
 
         private const string PART_StringIdList = "PART_StringIdList";
 
         private TextBox tbLocalizedString;
         private Button btnExport;
+        private Button btnResolveExport;
 
         private ListBox stringIdListBox;
 
@@ -52,9 +54,11 @@ namespace LocalizedStringPlugin
             tbLocalizedString = GetTemplateChild(PART_LocalizedString) as TextBox;
 
             btnExport = GetTemplateChild(PART_ExportButton) as Button;
+            btnResolveExport = GetTemplateChild(PART_ResolveExportButton) as Button;
 
             stringIdListBox.SelectionChanged += stringIdListbox_SelectionChanged;
             btnExport.Click += PART_ExportButton_Click;
+            btnResolveExport.Click += PART_ResolveExportButton_Click;
 
             Loaded += FrostyLocalizedStringViewer_Loaded;
         }
@@ -74,6 +78,7 @@ namespace LocalizedStringPlugin
             if (stringIds.Count == 0)
             {
                 btnExport.IsEnabled = false;
+                btnResolveExport.IsEnabled = false;
                 return;
             }
 
@@ -135,30 +140,85 @@ namespace LocalizedStringPlugin
             return result;
         }
 
-        private void PART_ExportButton_Click(object sender, RoutedEventArgs e)
+        private void ExportStringsToFile(Dictionary<uint, string> sidHashMap = null)
         {
             FrostySaveFileDialog sfd = new FrostySaveFileDialog("Save Localized Strings", "*.csv (CSV File)|*.csv", "LocalizedStrings");
             if (sfd.ShowDialog())
             {
+                uint resolvedSidCount = 0;
+
                 FrostyTaskWindow.Show("Exporting Localized Strings", "", (task) =>
                 {
-                    using (NativeWriter writer = new NativeWriter(new FileStream(sfd.FileName, FileMode.Create), false, true))
+                    using (NativeWriter writer = new NativeWriter(new FileStream(sfd.FileName, FileMode.Create)))
                     {
+                        string headerRow = "Hash,";
+                        if (sidHashMap != null)
+                        {
+                            headerRow += "SID,";
+                        }
+                        headerRow += "String";
+                        writer.WriteLine(headerRow);
+
                         int index = 0;
                         foreach (uint stringId in stringIds)
                         {
-                            string str = LocalizedStringDatabase.Current.GetString(stringId);
+                            string outputRow = stringId.ToString("X8") + ",";
+                            if (sidHashMap != null)
+                            {
+                                string stringIdAsString = "";
+                                try
+                                {
+                                    stringIdAsString = sidHashMap[stringId];
+                                    resolvedSidCount++;
+                                }
+                                catch {}
+                                outputRow += stringIdAsString + ",";
+                            }
+                            string localizedString = LocalizedStringDatabase.Current.GetString(stringId);
 
-                            str = str.Replace("\r", "");
-                            str = str.Replace("\n", " ");
+                            localizedString = localizedString.Replace("\r", "");
+                            localizedString = localizedString.Replace("\n", " ");
+                            localizedString = localizedString.Replace("\"", "\"\"");
 
-                            writer.WriteLine(stringId.ToString("X8") + ",\"" + str + "\"");
+                            outputRow += "\"" + localizedString + "\"";
+
+                            writer.WriteLine(outputRow);
                             task.Update(progress: ((index++) / (double)stringIds.Count) * 100.0);
                         }
                     }
                 });
 
                 App.Logger.Log("Localized strings saved to {0}", sfd.FileName);
+                if (sidHashMap != null)
+                {
+                    App.Logger.Log("Exported {0} strings, resolved {1}/{2} SIDs", stringIds.Count, resolvedSidCount, sidHashMap.Count);
+                }
+            }
+        }
+
+        private void PART_ExportButton_Click(object sender, RoutedEventArgs e)
+        {
+            ExportStringsToFile();
+        }
+
+        private void PART_ResolveExportButton_Click(object sender, RoutedEventArgs e)
+        {
+            FrostyOpenFileDialog ofd = new FrostyOpenFileDialog("Open String IDs reference file", "*.txt (Resource Files)|*.txt", "Res");
+            if (ofd.ShowDialog())
+            {
+                string[] sids = File.ReadAllLines(ofd.FileName);
+                Dictionary<uint, string> sidHashMap = new Dictionary<uint, string>();
+                FrostyTaskWindow.Show("Hashing string IDs", "", (task) =>
+                {
+                    int index = 0;
+                    foreach (string sid in sids)
+                    {
+                        string sidUpperCase = sid.ToUpper();
+                        sidHashMap.Add(HashStringId(sidUpperCase), sidUpperCase);
+                        task.Update(progress: ((index++) / (double)sids.Length) * 100.0);
+                    }
+                });
+                ExportStringsToFile(sidHashMap);
             }
         }
     }

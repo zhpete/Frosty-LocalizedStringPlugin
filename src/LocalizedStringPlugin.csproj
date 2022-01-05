@@ -36,6 +36,7 @@
     <Optimize>true</Optimize>
   </PropertyGroup>
 
+  <!-- Comment this block out in development if it causes errors -->
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
     <Exec Command="xcopy /Y $(TargetPath) $(SolutionDir)$(OutDir)Plugins\" />
   </Target>
